@@ -1,692 +1,441 @@
+import tkinter
 from tkinter import *
+import tkinter.ttk
+from tkinter import messagebox
 import tkintermapview
-from tkinter import ttk
-
-complexes = []
-employees = []
-clients = []
+import requests
+from bs4 import BeautifulSoup
 
 
-class Complex:
-    def __init__(self, name, address, location, map_widget):
-        self.name = name
-        self.address = address
-        self.location = location
-        self.coordinates = self.get_coordinates()
-        self.marker = map_widget.set_marker(
-            self.coordinates[0],
-            self.coordinates[1],
-            text=f'Kompleks: {self.name}',
-            marker_color_circle="#1e90ff",  # Blue color
-            marker_color_outside="#1e90ff"
-        )
-
-    def get_coordinates(self) -> list:
-        import requests
-        from bs4 import BeautifulSoup
-        adres_url = f'https://pl.wikipedia.org/wiki/{self.location}'
-        response = requests.get(adres_url)
-        if response.status_code == 200:
-            response_html = BeautifulSoup(requests.get(adres_url).text, 'html.parser')
-            return [
-                float(response_html.select('.latitude')[1].text.replace(',', '.')),
-                float(response_html.select('.longitude')[1].text.replace(',', '.')),
-            ]
+def pobierz_wspolrzedne(miejscowosc):
+    try:
+        url = f'https://pl.wikipedia.org/wiki/{miejscowosc}'
+        r = requests.get(url)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            lat = float(soup.select('.latitude')[1].text.replace(',', '.'))
+            lon = float(soup.select('.longitude')[1].text.replace(',', '.'))
+            return [lat, lon]
+    except Exception as e:
+        print(f"Błąd pobierania wspolrzednych dla {miejscowosc}: {e}")
+    return [52.22977, 21.01178]
 
 
-class Employee:
-    def __init__(self, name, surname, complex_name, position, map_widget):
-        self.name = name
-        self.surname = surname
-        self.complex_name = complex_name
-        self.position = position
-        self.coordinates = self.get_complex_coordinates(complex_name)
-        self.marker = map_widget.set_marker(
-            self.coordinates[0],
-            self.coordinates[1],
-            text=f'Pracownik: {self.name} {self.surname}',
-            marker_color_circle="#32CD32",  # Green color
-            marker_color_outside="#32CD32"
-        )
+class KompleksSportowy:
+    def __init__(self, nazwa, miejscowosc, mapa):
+        self.nazwa = nazwa
+        self.miejscowosc = miejscowosc
+        self.wspolrzedne = pobierz_wspolrzedne(miejscowosc)
+        self.marker = mapa.set_marker(self.wspolrzedne[0], self.wspolrzedne[1], text=f"Kompleks: {self.nazwa}")
+        self.pracownicy = []
+        self.klienci = []
 
-    def get_complex_coordinates(self, complex_name) -> list:
-        for complex in complexes:
-            if complex.name == complex_name:
-                return complex.coordinates
-        return [52.23, 21.00]  # Default Warsaw coordinates
+    def aktualizuj_marker(self, mapa):
+        self.marker.delete()
+        self.wspolrzedne = pobierz_wspolrzedne(self.miejscowosc)
+        self.marker = mapa.set_marker(self.wspolrzedne[0], self.wspolrzedne[1], text=f"Kompleks: {self.nazwa}")
 
 
-class Client:
-    def __init__(self, name, surname, location, sport, map_widget):
-        self.name = name
-        self.surname = surname
-        self.location = location
-        self.sport = sport
-        self.coordinates = self.get_coordinates()
-        self.marker = map_widget.set_marker(
-            self.coordinates[0],
-            self.coordinates[1],
-            text=f'Klient: {self.name} {self.surname}',
-            marker_color_circle="#FF4500",  # OrangeRed color
-            marker_color_outside="#FF4500"
-        )
+class Osoba:
+    def __init__(self, imie, nazwisko, miejscowosc, mapa, kompleks=None):
+        self.imie = imie
+        self.nazwisko = nazwisko
+        self.miejscowosc = miejscowosc
+        self.wspolrzedne = pobierz_wspolrzedne(miejscowosc)
+        self.marker = mapa.set_marker(self.wspolrzedne[0], self.wspolrzedne[1], text=f"{self.imie} {self.nazwisko}")
+        self.kompleks = kompleks  # Do jakiego kompleksu należy (jeśli dotyczy)
 
-    def get_coordinates(self) -> list:
-        import requests
-        from bs4 import BeautifulSoup
-        adres_url = f'https://pl.wikipedia.org/wiki/{self.location}'
-        response = requests.get(adres_url)
-        if response.status_code == 200:
-            response_html = BeautifulSoup(requests.get(adres_url).text, 'html.parser')
-            return [
-                float(response_html.select('.latitude')[1].text.replace(',', '.')),
-                float(response_html.select('.longitude')[1].text.replace(',', '.')),
-            ]
+    def aktualizuj_marker(self, mapa):
+        self.marker.delete()
+        self.wspolrzedne = pobierz_wspolrzedne(self.miejscowosc)
+        self.marker = mapa.set_marker(self.wspolrzedne[0], self.wspolrzedne[1], text=f"{self.imie} {self.nazwisko}")
 
 
-def add_item() -> None:
-    category = combo_kategoria.get()
+class Pracownik(Osoba):
+    pass
 
-    if category == "Kompleksy sportowe":
-        name = entry_nazwa.get()
-        address = entry_adres.get()
-        location = entry_lokalizacja.get()
 
-        complex = Complex(name=name, address=address, location=location, map_widget=map_widget)
-        complexes.append(complex)
+class Klient(Osoba):
+    pass
 
+
+lista_kompleksow = []
+lista_pracownikow = []
+lista_klientow = []
+
+
+
+def wyczysc_formularz():
+    entry_nazwa.delete(0, END)
+    entry_imie.delete(0, END)
+    entry_nazwisko.delete(0, END)
+    entry_miejscowosc.delete(0, END)
+    combo_kompleks.set('')
+
+
+def pokaz_wszystkie_obiekty():
+    listbox_obiekty.delete(0, END)
+    typ = var_typ.get()
+    if typ == "Kompleksy":
+        for idx, k in enumerate(lista_kompleksow):
+            listbox_obiekty.insert(END, f"{idx+1}. {k.nazwa} ({k.miejscowosc})")
+    elif typ == "Pracownicy":
+        for idx, p in enumerate(lista_pracownikow):
+            listbox_obiekty.insert(END, f"{idx+1}. {p.imie} {p.nazwisko} ({p.miejscowosc}) - {p.kompleks.nazwa if p.kompleks else 'Brak'}")
+    elif typ == "Klienci":
+        for idx, c in enumerate(lista_klientow):
+            listbox_obiekty.insert(END, f"{idx+1}. {c.imie} {c.nazwisko} ({c.miejscowosc}) - {c.kompleks.nazwa if c.kompleks else 'Brak'}")
+
+
+def dodaj_obiekt():
+    typ = var_typ.get()
+    if typ == "Kompleksy":
+        nazwa = entry_nazwa.get().strip()
+        miejscowosc = entry_miejscowosc.get().strip()
+        if not nazwa or not miejscowosc:
+            messagebox.showwarning("Brak danych", "Podaj nazwę i miejscowość kompleksu!")
+            return
+        k = KompleksSportowy(nazwa, miejscowosc, mapa)
+        lista_kompleksow.append(k)
+        messagebox.showinfo("Dodano", f"Dodano kompleks: {nazwa}")
+    elif typ == "Pracownicy":
+        imie = entry_imie.get().strip()
+        nazwisko = entry_nazwisko.get().strip()
+        miejscowosc = entry_miejscowosc.get().strip()
+        nazwa_kompleksu = combo_kompleks.get()
+        if not imie or not nazwisko or not miejscowosc:
+            messagebox.showwarning("Brak danych", "Podaj imię, nazwisko i miejscowość pracownika!")
+            return
+        kompleks = None
+        for k in lista_kompleksow:
+            if k.nazwa == nazwa_kompleksu:
+                kompleks = k
+                break
+        p = Pracownik(imie, nazwisko, miejscowosc, mapa, kompleks)
+        lista_pracownikow.append(p)
+        if kompleks:
+            kompleks.pracownicy.append(p)
+        messagebox.showinfo("Dodano", f"Dodano pracownika: {imie} {nazwisko}")
+    elif typ == "Klienci":
+        imie = entry_imie.get().strip()
+        nazwisko = entry_nazwisko.get().strip()
+        miejscowosc = entry_miejscowosc.get().strip()
+        nazwa_kompleksu = combo_kompleks.get()
+        if not imie or not nazwisko or not miejscowosc:
+            messagebox.showwarning("Brak danych", "Podaj imię, nazwisko i miejscowość klienta!")
+            return
+        kompleks = None
+        for k in lista_kompleksow:
+            if k.nazwa == nazwa_kompleksu:
+                kompleks = k
+                break
+        c = Klient(imie, nazwisko, miejscowosc, mapa, kompleks)
+        lista_klientow.append(c)
+        if kompleks:
+            kompleks.klienci.append(c)
+        messagebox.showinfo("Dodano", f"Dodano klienta: {imie} {nazwisko}")
+    wyczysc_formularz()
+    pokaz_wszystkie_obiekty()
+
+
+def usun_obiekt():
+    typ = var_typ.get()
+    try:
+        idx = listbox_obiekty.curselection()[0]
+    except IndexError:
+        messagebox.showwarning("Błąd", "Wybierz obiekt z listy do usunięcia!")
+        return
+
+    if typ == "Kompleksy":
+        k = lista_kompleksow.pop(idx)
+        k.marker.delete()
+        for p in k.pracownicy:
+            if p in lista_pracownikow:
+                p.marker.delete()
+                lista_pracownikow.remove(p)
+        for c in k.klienci:
+            if c in lista_klientow:
+                c.marker.delete()
+                lista_klientow.remove(c)
+        messagebox.showinfo("Usunięto", f"Usunięto kompleks: {k.nazwa}")
+    elif typ == "Pracownicy":
+        p = lista_pracownikow.pop(idx)
+        p.marker.delete()
+        if p.kompleks and p in p.kompleks.pracownicy:
+            p.kompleks.pracownicy.remove(p)
+        messagebox.showinfo("Usunięto", f"Usunięto pracownika: {p.imie} {p.nazwisko}")
+    elif typ == "Klienci":
+        c = lista_klientow.pop(idx)
+        c.marker.delete()
+        if c.kompleks and c in c.kompleks.klienci:
+            c.kompleks.klienci.remove(c)
+        messagebox.showinfo("Usunięto", f"Usunięto klienta: {c.imie} {c.nazwisko}")
+
+    wyczysc_formularz()
+    pokaz_wszystkie_obiekty()
+
+
+def edytuj_obiekt():
+    typ = var_typ.get()
+    try:
+        idx = listbox_obiekty.curselection()[0]
+    except IndexError:
+        messagebox.showwarning("Błąd", "Wybierz obiekt z listy do edycji!")
+        return
+
+    if typ == "Kompleksy":
+        k = lista_kompleksow[idx]
         entry_nazwa.delete(0, END)
-        entry_adres.delete(0, END)
-        entry_lokalizacja.delete(0, END)
-
-    elif category == "Pracownicy":
-        name = entry_imie.get()
-        surname = entry_nazwisko.get()
-        complex_name = entry_kompleks.get()
-        position = entry_stanowisko.get()
-
-        employee = Employee(name=name, surname=surname, complex_name=complex_name,
-                            position=position, map_widget=map_widget)
-        employees.append(employee)
-
+        entry_nazwa.insert(0, k.nazwa)
+        entry_miejscowosc.delete(0, END)
+        entry_miejscowosc.insert(0, k.miejscowosc)
         entry_imie.delete(0, END)
         entry_nazwisko.delete(0, END)
-        entry_kompleks.delete(0, END)
-        entry_stanowisko.delete(0, END)
-
-    elif category == "Klienci":
-        name = entry_imie.get()
-        surname = entry_nazwisko.get()
-        location = entry_lokalizacja.get()
-        sport = entry_sport.get()
-
-        client = Client(name=name, surname=surname, location=location,
-                        sport=sport, map_widget=map_widget)
-        clients.append(client)
-
-        entry_imie.delete(0, END)
-        entry_nazwisko.delete(0, END)
-        entry_lokalizacja.delete(0, END)
-        entry_sport.delete(0, END)
-
-    show_items()
-    update_complex_combo()
-    entry_imie.focus()
-
-
-def show_items() -> None:
-    category = combo_kategoria.get()
-    listbox_lista_obiektow.delete(0, END)
-
-    if category == "Kompleksy sportowe":
-        for idx, complex in enumerate(complexes):
-            listbox_lista_obiektow.insert(idx, f'{idx + 1}. {complex.name}')
-    elif category == "Pracownicy":
-        for idx, employee in enumerate(employees):
-            listbox_lista_obiektow.insert(idx, f'{idx + 1}. {employee.name} {employee.surname}')
-    elif category == "Klienci":
-        for idx, client in enumerate(clients):
-            listbox_lista_obiektow.insert(idx, f'{idx + 1}. {client.name} {client.surname}')
-
-
-def remove_item():
-    category = combo_kategoria.get()
-    i = listbox_lista_obiektow.index(ACTIVE)
-
-    if category == "Kompleksy sportowe":
-        complexes[i].marker.delete()
-        complexes.pop(i)
-    elif category == "Pracownicy":
-        employees[i].marker.delete()
-        employees.pop(i)
-    elif category == "Klienci":
-        clients[i].marker.delete()
-        clients.pop(i)
-
-    show_items()
-
-
-def edit_item():
-    category = combo_kategoria.get()
-    i = listbox_lista_obiektow.index(ACTIVE)
-
-    if category == "Kompleksy sportowe":
-        complex = complexes[i]
-        entry_nazwa.insert(0, complex.name)
-        entry_adres.insert(0, complex.address)
-        entry_lokalizacja.insert(0, complex.location)
-
-    elif category == "Pracownicy":
-        employee = employees[i]
-        entry_imie.insert(0, employee.name)
-        entry_nazwisko.insert(0, employee.surname)
-        entry_kompleks.insert(0, employee.complex_name)
-        entry_stanowisko.insert(0, employee.position)
-
-    elif category == "Klienci":
-        client = clients[i]
-        entry_imie.insert(0, client.name)
-        entry_nazwisko.insert(0, client.surname)
-        entry_lokalizacja.insert(0, client.location)
-        entry_sport.insert(0, client.sport)
-
-    button_dodaj_obiekt.config(text='Zapisz', command=lambda: update_item(i))
-
-
-def update_item(i):
-    category = combo_kategoria.get()
-
-    if category == "Kompleksy sportowe":
-        name = entry_nazwa.get()
-        address = entry_adres.get()
-        location = entry_lokalizacja.get()
-
-        complexes[i].name = name
-        complexes[i].address = address
-        complexes[i].location = location
-
-        complexes[i].coordinates = complexes[i].get_coordinates()
-        complexes[i].marker.delete()
-        complexes[i].marker = map_widget.set_marker(
-            complexes[i].coordinates[0],
-            complexes[i].coordinates[1],
-            text=f'Kompleks: {complexes[i].name}',
-            marker_color_circle="#1e90ff",
-            marker_color_outside="#1e90ff"
-        )
-
+        combo_kompleks.set('')
+        button_dodaj.config(text="Zapisz", command=lambda: zapisz_edycje_kompleksu(idx))
+    elif typ == "Pracownicy":
+        p = lista_pracownikow[idx]
         entry_nazwa.delete(0, END)
-        entry_adres.delete(0, END)
-        entry_lokalizacja.delete(0, END)
-
-    elif category == "Pracownicy":
-        name = entry_imie.get()
-        surname = entry_nazwisko.get()
-        complex_name = entry_kompleks.get()
-        position = entry_stanowisko.get()
-
-        employees[i].name = name
-        employees[i].surname = surname
-        employees[i].complex_name = complex_name
-        employees[i].position = position
-
-        employees[i].coordinates = employees[i].get_complex_coordinates(complex_name)
-        employees[i].marker.delete()
-        employees[i].marker = map_widget.set_marker(
-            employees[i].coordinates[0],
-            employees[i].coordinates[1],
-            text=f'Pracownik: {employees[i].name} {employees[i].surname}',
-            marker_color_circle="#32CD32",
-            marker_color_outside="#32CD32"
-        )
-
+        entry_nazwa.config(state=DISABLED)
         entry_imie.delete(0, END)
+        entry_imie.insert(0, p.imie)
         entry_nazwisko.delete(0, END)
-        entry_kompleks.delete(0, END)
-        entry_stanowisko.delete(0, END)
-
-    elif category == "Klienci":
-        name = entry_imie.get()
-        surname = entry_nazwisko.get()
-        location = entry_lokalizacja.get()
-        sport = entry_sport.get()
-
-        clients[i].name = name
-        clients[i].surname = surname
-        clients[i].location = location
-        clients[i].sport = sport
-
-        clients[i].coordinates = clients[i].get_coordinates()
-        clients[i].marker.delete()
-        clients[i].marker = map_widget.set_marker(
-            clients[i].coordinates[0],
-            clients[i].coordinates[1],
-            text=f'Klient: {clients[i].name} {clients[i].surname}',
-            marker_color_circle="#FF4500",
-            marker_color_outside="#FF4500"
-        )
-
+        entry_nazwisko.insert(0, p.nazwisko)
+        entry_miejscowosc.delete(0, END)
+        entry_miejscowosc.insert(0, p.miejscowosc)
+        combo_kompleks.set(p.kompleks.nazwa if p.kompleks else '')
+        button_dodaj.config(text="Zapisz", command=lambda: zapisz_edycje_pracownika(idx))
+    elif typ == "Klienci":
+        c = lista_klientow[idx]
+        entry_nazwa.delete(0, END)
+        entry_nazwa.config(state=DISABLED)
         entry_imie.delete(0, END)
+        entry_imie.insert(0, c.imie)
         entry_nazwisko.delete(0, END)
-        entry_lokalizacja.delete(0, END)
-        entry_sport.delete(0, END)
-
-    show_items()
-    button_dodaj_obiekt.config(text='Dodaj', command=add_item)
-    entry_imie.focus()
-
-
-def show_item_details() -> None:
-    category = combo_kategoria.get()
-    i = listbox_lista_obiektow.index(ACTIVE)
-
-    if category == "Kompleksy sportowe":
-        complex = complexes[i]
-        label_szczegoly_obiektu_nazwa_wartosc.config(text=complex.name)
-        label_szczegoly_obiektu_adres_wartosc.config(text=complex.address)
-        label_szczegoly_obiektu_lokalizacja_wartosc.config(text=complex.location)
-
-        # Clear other fields
-        label_szczegoly_obiektu_imie_wartosc.config(text="")
-        label_szczegoly_obiektu_nazwisko_wartosc.config(text="")
-        label_szczegoly_obiektu_kompleks_wartosc.config(text="")
-        label_szczegoly_obiektu_stanowisko_wartosc.config(text="")
-        label_szczegoly_obiektu_sport_wartosc.config(text="")
-
-        map_widget.set_zoom(15)
-        map_widget.set_position(complex.coordinates[0], complex.coordinates[1])
-
-    elif category == "Pracownicy":
-        employee = employees[i]
-        label_szczegoly_obiektu_imie_wartosc.config(text=employee.name)
-        label_szczegoly_obiektu_nazwisko_wartosc.config(text=employee.surname)
-        label_szczegoly_obiektu_kompleks_wartosc.config(text=employee.complex_name)
-        label_szczegoly_obiektu_stanowisko_wartosc.config(text=employee.position)
-
-        # Clear other fields
-        label_szczegoly_obiektu_nazwa_wartosc.config(text="")
-        label_szczegoly_obiektu_adres_wartosc.config(text="")
-        label_szczegoly_obiektu_lokalizacja_wartosc.config(text="")
-        label_szczegoly_obiektu_sport_wartosc.config(text="")
-
-        map_widget.set_zoom(15)
-        map_widget.set_position(employee.coordinates[0], employee.coordinates[1])
-
-    elif category == "Klienci":
-        client = clients[i]
-        label_szczegoly_obiektu_imie_wartosc.config(text=client.name)
-        label_szczegoly_obiektu_nazwisko_wartosc.config(text=client.surname)
-        label_szczegoly_obiektu_lokalizacja_wartosc.config(text=client.location)
-        label_szczegoly_obiektu_sport_wartosc.config(text=client.sport)
-
-        # Clear other fields
-        label_szczegoly_obiektu_nazwa_wartosc.config(text="")
-        label_szczegoly_obiektu_adres_wartosc.config(text="")
-        label_szczegoly_obiektu_kompleks_wartosc.config(text="")
-        label_szczegoly_obiektu_stanowisko_wartosc.config(text="")
-
-        map_widget.set_zoom(15)
-        map_widget.set_position(client.coordinates[0], client.coordinates[1])
+        entry_nazwisko.insert(0, c.nazwisko)
+        entry_miejscowosc.delete(0, END)
+        entry_miejscowosc.insert(0, c.miejscowosc)
+        combo_kompleks.set(c.kompleks.nazwa if c.kompleks else '')
+        button_dodaj.config(text="Zapisz", command=lambda: zapisz_edycje_klienta(idx))
 
 
-def update_form_fields(event=None):
-    category = combo_kategoria.get()
-
-    # Hide all fields first
-    label_nazwa.grid_remove()
-    entry_nazwa.grid_remove()
-    label_adres.grid_remove()
-    entry_adres.grid_remove()
-    label_imie.grid_remove()
-    entry_imie.grid_remove()
-    label_nazwisko.grid_remove()
-    entry_nazwisko.grid_remove()
-    label_kompleks.grid_remove()
-    entry_kompleks.grid_remove()
-    label_stanowisko.grid_remove()
-    entry_stanowisko.grid_remove()
-    label_lokalizacja.grid_remove()
-    entry_lokalizacja.grid_remove()
-    label_sport.grid_remove()
-    entry_sport.grid_remove()
-
-    # Show appropriate fields
-    if category == "Kompleksy sportowe":
-        label_nazwa.grid()
-        entry_nazwa.grid()
-        label_adres.grid()
-        entry_adres.grid()
-        label_lokalizacja.grid()
-        entry_lokalizacja.grid()
-
-    elif category == "Pracownicy":
-        label_imie.grid()
-        entry_imie.grid()
-        label_nazwisko.grid()
-        entry_nazwisko.grid()
-        label_kompleks.grid()
-        entry_kompleks.grid()
-        label_stanowisko.grid()
-        entry_stanowisko.grid()
-
-    elif category == "Klienci":
-        label_imie.grid()
-        entry_imie.grid()
-        label_nazwisko.grid()
-        entry_nazwisko.grid()
-        label_lokalizacja.grid()
-        entry_lokalizacja.grid()
-        label_sport.grid()
-        entry_sport.grid()
-
-    show_items()
+def zapisz_edycje_kompleksu(idx):
+    k = lista_kompleksow[idx]
+    nazwa = entry_nazwa.get().strip()
+    miejscowosc = entry_miejscowosc.get().strip()
+    if not nazwa or not miejscowosc:
+        messagebox.showwarning("Brak danych", "Podaj nazwę i miejscowość kompleksu!")
+        return
+    k.nazwa = nazwa
+    k.miejscowosc = miejscowosc
+    k.aktualizuj_marker(mapa)
+    button_dodaj.config(text="Dodaj", command=dodaj_obiekt)
+    entry_nazwa.config(state=NORMAL)
+    wyczysc_formularz()
+    pokaz_wszystkie_obiekty()
+    messagebox.showinfo("Zapisano", f"Zapisano zmiany kompleksu: {nazwa}")
 
 
-def update_complex_combo():
-    entry_kompleks['values'] = [complex.name for complex in complexes]
-
-
-def clear_map():
-    map_widget.delete_all_marker()
-
-
-def generate_complexes_map():
-    clear_map()
-    for complex in complexes:
-        complex.marker = map_widget.set_marker(
-            complex.coordinates[0],
-            complex.coordinates[1],
-            text=f'Kompleks: {complex.name}',
-            marker_color_circle="#1e90ff",
-            marker_color_outside="#1e90ff"
-        )
-    if complexes:
-        map_widget.set_position(complexes[0].coordinates[0], complexes[0].coordinates[1])
-        map_widget.set_zoom(10)
-
-
-def generate_employees_map():
-    clear_map()
-    for employee in employees:
-        employee.marker = map_widget.set_marker(
-            employee.coordinates[0],
-            employee.coordinates[1],
-            text=f'Pracownik: {employee.name} {employee.surname}',
-            marker_color_circle="#32CD32",
-            marker_color_outside="#32CD32"
-        )
-    if employees:
-        map_widget.set_position(employees[0].coordinates[0], employees[0].coordinates[1])
-        map_widget.set_zoom(10)
-
-
-def generate_clients_map():
-    clear_map()
-    for client in clients:
-        client.marker = map_widget.set_marker(
-            client.coordinates[0],
-            client.coordinates[1],
-            text=f'Klient: {client.name} {client.surname}',
-            marker_color_circle="#FF4500",
-            marker_color_outside="#FF4500"
-        )
-    if clients:
-        map_widget.set_position(clients[0].coordinates[0], clients[0].coordinates[1])
-        map_widget.set_zoom(10)
-
-
-def generate_employees_for_complex_map():
-    clear_map()
-    complex_name = combo_wybrany_kompleks.get()
-    found = False
-
-    for employee in employees:
-        if employee.complex_name == complex_name:
-            employee.marker = map_widget.set_marker(
-                employee.coordinates[0],
-                employee.coordinates[1],
-                text=f'Pracownik: {employee.name} {employee.surname}',
-                marker_color_circle="#32CD32",
-                marker_color_outside="#32CD32"
-            )
-            if not found:
-                map_widget.set_position(employee.coordinates[0], employee.coordinates[1])
-                map_widget.set_zoom(15)
-                found = True
-
-    # Add complex marker
-    for complex in complexes:
-        if complex.name == complex_name:
-            complex.marker = map_widget.set_marker(
-                complex.coordinates[0],
-                complex.coordinates[1],
-                text=f'Kompleks: {complex.name}',
-                marker_color_circle="#1e90ff",
-                marker_color_outside="#1e90ff"
-            )
-            if not found:
-                map_widget.set_position(complex.coordinates[0], complex.coordinates[1])
-                map_widget.set_zoom(15)
-                found = True
-
-
-def generate_clients_for_complex_map():
-    clear_map()
-    complex_name = combo_wybrany_kompleks.get()
-    complex_coords = None
-
-    # Find complex coordinates
-    for complex in complexes:
-        if complex.name == complex_name:
-            complex_coords = complex.coordinates
-            complex.marker = map_widget.set_marker(
-                complex.coordinates[0],
-                complex.coordinates[1],
-                text=f'Kompleks: {complex.name}',
-                marker_color_circle="#1e90ff",
-                marker_color_outside="#1e90ff"
-            )
-            map_widget.set_position(complex.coordinates[0], complex.coordinates[1])
-            map_widget.set_zoom(15)
+def zapisz_edycje_pracownika(idx):
+    p = lista_pracownikow[idx]
+    imie = entry_imie.get().strip()
+    nazwisko = entry_nazwisko.get().strip()
+    miejscowosc = entry_miejscowosc.get().strip()
+    nazwa_kompleksu = combo_kompleks.get()
+    if not imie or not nazwisko or not miejscowosc:
+        messagebox.showwarning("Brak danych", "Podaj imię, nazwisko i miejscowość pracownika!")
+        return
+    p.imie = imie
+    p.nazwisko = nazwisko
+    p.miejscowosc = miejscowosc
+    if p.kompleks and p in p.kompleks.pracownicy:
+        p.kompleks.pracownicy.remove(p)
+    nowy_kompleks = None
+    for k in lista_kompleksow:
+        if k.nazwa == nazwa_kompleksu:
+            nowy_kompleks = k
             break
+    p.kompleks = nowy_kompleks
+    if nowy_kompleks:
+        nowy_kompleks.pracownicy.append(p)
+    p.aktualizuj_marker(mapa)
+    button_dodaj.config(text="Dodaj", command=dodaj_obiekt)
+    entry_nazwa.config(state=NORMAL)
+    wyczysc_formularz()
+    pokaz_wszystkie_obiekty()
+    messagebox.showinfo("Zapisano", f"Zapisano zmiany pracownika: {imie} {nazwisko}")
 
-    # Add clients who visited this complex
-    if complex_coords:
-        for client in clients:
-            # Simple approximation - show clients within 0.5 degree (~55 km)
-            if (abs(client.coordinates[0] - complex_coords[0]) < 0.5 and
-                    abs(client.coordinates[1] - complex_coords[1]) < 0.5):
-                client.marker = map_widget.set_marker(
-                    client.coordinates[0],
-                    client.coordinates[1],
-                    text=f'Klient: {client.name} {client.surname}',
-                    marker_color_circle="#FF4500",
-                    marker_color_outside="#FF4500"
-                )
+
+def zapisz_edycje_klienta(idx):
+    c = lista_klientow[idx]
+    imie = entry_imie.get().strip()
+    nazwisko = entry_nazwisko.get().strip()
+    miejscowosc = entry_miejscowosc.get().strip()
+    nazwa_kompleksu = combo_kompleks.get()
+    if not imie or not nazwisko or not miejscowosc:
+        messagebox.showwarning("Brak danych", "Podaj imię, nazwisko i miejscowość klienta!")
+        return
+    c.imie = imie
+    c.nazwisko = nazwisko
+    c.miejscowosc = miejscowosc
+    if c.kompleks and c in c.kompleks.klienci:
+        c.kompleks.klienci.remove(c)
+    nowy_kompleks = None
+    for k in lista_kompleksow:
+        if k.nazwa == nazwa_kompleksu:
+            nowy_kompleks = k
+            break
+    c.kompleks = nowy_kompleks
+    if nowy_kompleks:
+        nowy_kompleks.klienci.append(c)
+    c.aktualizuj_marker(mapa)
+    button_dodaj.config(text="Dodaj", command=dodaj_obiekt)
+    entry_nazwa.config(state=NORMAL)
+    wyczysc_formularz()
+    pokaz_wszystkie_obiekty()
+    messagebox.showinfo("Zapisano", f"Zapisano zmiany klienta: {imie} {nazwisko}")
+
+
+def pokaz_szczegoly():
+    typ = var_typ.get()
+    try:
+        idx = listbox_obiekty.curselection()[0]
+    except IndexError:
+        messagebox.showwarning("Błąd", "Wybierz obiekt z listy!")
+        return
+
+    if typ == "Kompleksy":
+        k = lista_kompleksow[idx]
+        label_szczegoly.config(text=f"Nazwa: {k.nazwa}\nMiejscowość: {k.miejscowosc}\n"
+                                    f"Pracownicy: {len(k.pracownicy)}\nKlienci: {len(k.klienci)}")
+        mapa.set_position(k.wspolrzedne[0], k.wspolrzedne[1])
+        mapa.set_zoom(13)
+    elif typ == "Pracownicy":
+        p = lista_pracownikow[idx]
+        label_szczegoly.config(text=f"Imię: {p.imie}\nNazwisko: {p.nazwisko}\nMiejscowość: {p.miejscowosc}\n"
+                                    f"Kompleks: {p.kompleks.nazwa if p.kompleks else 'Brak'}")
+        mapa.set_position(p.wspolrzedne[0], p.wspolrzedne[1])
+        mapa.set_zoom(15)
+    elif typ == "Klienci":
+        c = lista_klientow[idx]
+        label_szczegoly.config(text=f"Imię: {c.imie}\nNazwisko: {c.nazwisko}\nMiejscowość: {c.miejscowosc}\n"
+                                    f"Kompleks: {c.kompleks.nazwa if c.kompleks else 'Brak'}")
+        mapa.set_position(c.wspolrzedne[0], c.wspolrzedne[1])
+        mapa.set_zoom(15)
+
+
+def odswiez_mape():
+    mapa.delete_all_marker()
+    typ = var_typ.get()
+    if typ == "Kompleksy":
+        for k in lista_kompleksow:
+            k.marker = mapa.set_marker(k.wspolrzedne[0], k.wspolrzedne[1], text=f"Kompleks: {k.nazwa}")
+    elif typ == "Pracownicy":
+        for p in lista_pracownikow:
+            p.marker = mapa.set_marker(p.wspolrzedne[0], p.wspolrzedne[1], text=f"Pracownik: {p.imie} {p.nazwisko}")
+    elif typ == "Klienci":
+        for c in lista_klientow:
+            c.marker = mapa.set_marker(c.wspolrzedne[0], c.wspolrzedne[1], text=f"Klient: {c.imie} {c.nazwisko}")
+
+
+def aktualizuj_combo_kompleks():
+    combo_kompleks['values'] = [k.nazwa for k in lista_kompleksow]
+
+
+def zmien_typ(event=None):
+    typ = var_typ.get()
+    if typ == "Kompleksy":
+        entry_nazwa.config(state=NORMAL)
+        entry_imie.config(state=DISABLED)
+        entry_nazwisko.config(state=DISABLED)
+        combo_kompleks.config(state=DISABLED)
+    else:
+        entry_nazwa.delete(0, END)
+        entry_nazwa.config(state=DISABLED)
+        entry_imie.config(state=NORMAL)
+        entry_nazwisko.config(state=NORMAL)
+        combo_kompleks.config(state=NORMAL)
+
+    wyczysc_formularz()
+    pokaz_wszystkie_obiekty()
+    aktualizuj_combo_kompleks()
+    odswiez_mape()
+    label_szczegoly.config(text="")
+
 
 
 root = Tk()
-root.geometry("1200x800")
-root.title("System zarządzania kompleksami sportowymi")
+root.title("Zarządzanie kompleksami sportowymi i rezerwacjami")
+root.geometry("900x600")
 
-# Create frames
-ramka_lista_obiektow = Frame(root)
-ramka_formularz = Frame(root)
-ramka_szczegoly_obiektow = Frame(root)
-ramka_mapa = Frame(root)
-ramka_kontrolna = Frame(root)
+# Lewa ramka - lista i szczegóły
+frame_lewy = Frame(root)
+frame_lewy.pack(side=LEFT, fill=BOTH, expand=False, padx=10, pady=10)
 
-# Grid layout
-ramka_kontrolna.grid(row=0, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
-ramka_lista_obiektow.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
-ramka_formularz.grid(row=1, column=1, padx=10, pady=5, sticky="nsew")
-ramka_szczegoly_obiektow.grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
-ramka_mapa.grid(row=3, column=0, columnspan=2, padx=10, pady=5, sticky="nsew")
+Label(frame_lewy, text="Typ obiektu:").pack(anchor=W)
+var_typ = StringVar()
+var_typ.set("Kompleksy")
+combo_typ = OptionMenu(frame_lewy, var_typ, "Kompleksy", "Pracownicy", "Klienci", command=zmien_typ)
+combo_typ.pack(anchor=W, fill=X)
 
-# Configure row and column weights
-root.grid_rowconfigure(1, weight=1)
-root.grid_rowconfigure(3, weight=1)
-root.grid_columnconfigure(0, weight=1)
-root.grid_columnconfigure(1, weight=1)
+listbox_obiekty = Listbox(frame_lewy, height=20)
+listbox_obiekty.pack(fill=BOTH, expand=True)
+listbox_obiekty.bind('<<ListboxSelect>>', lambda e: pokaz_szczegoly())
 
-# Control frame
-label_kategoria = Label(ramka_kontrolna, text="Kategoria:")
-label_kategoria.grid(row=0, column=0, padx=5, pady=5)
+label_szczegoly = Label(frame_lewy, text="", justify=LEFT)
+label_szczegoly.pack(fill=X, pady=5)
 
-kategorie = ["Kompleksy sportowe", "Pracownicy", "Klienci"]
-combo_kategoria = ttk.Combobox(ramka_kontrolna, values=kategorie, state="readonly")
-combo_kategoria.current(0)
-combo_kategoria.grid(row=0, column=1, padx=5, pady=5)
-combo_kategoria.bind("<<ComboboxSelected>>", update_form_fields)
+button_edytuj = Button(frame_lewy, text="Edytuj", command=edytuj_obiekt)
+button_edytuj.pack(fill=X)
 
-# Map buttons
-button_kompleksy = Button(ramka_kontrolna, text="Mapa kompleksów", command=generate_complexes_map)
-button_kompleksy.grid(row=0, column=2, padx=5, pady=5)
+button_usun = Button(frame_lewy, text="Usuń", command=usun_obiekt)
+button_usun.pack(fill=X, pady=5)
 
-button_pracownicy = Button(ramka_kontrolna, text="Mapa pracowników", command=generate_employees_map)
-button_pracownicy.grid(row=0, column=3, padx=5, pady=5)
+# Prawa ramka - formularz i mapa
+frame_prawy = Frame(root)
+frame_prawy.pack(side=LEFT, fill=BOTH, expand=True, padx=10, pady=10)
 
-button_klienci = Button(ramka_kontrolna, text="Mapa klientów", command=generate_clients_map)
-button_klienci.grid(row=0, column=4, padx=5, pady=5)
+# Formularz
+frame_form = Frame(frame_prawy)
+frame_form.pack(fill=X, pady=5)
 
-label_wybrany_kompleks = Label(ramka_kontrolna, text="Wybierz kompleks:")
-label_wybrany_kompleks.grid(row=0, column=5, padx=5, pady=5)
+Label(frame_form, text="Nazwa (kompleks):").grid(row=0, column=0, sticky=W)
+entry_nazwa = Entry(frame_form)
+entry_nazwa.grid(row=0, column=1, sticky=EW)
 
-combo_wybrany_kompleks = ttk.Combobox(ramka_kontrolna, state="readonly")
-combo_wybrany_kompleks.grid(row=0, column=6, padx=5, pady=5)
+Label(frame_form, text="Imię:").grid(row=1, column=0, sticky=W)
+entry_imie = Entry(frame_form)
+entry_imie.grid(row=1, column=1, sticky=EW)
 
-button_pracownicy_kompleks = Button(ramka_kontrolna, text="Pracownicy kompleksu",
-                                    command=generate_employees_for_complex_map)
-button_pracownicy_kompleks.grid(row=0, column=7, padx=5, pady=5)
+Label(frame_form, text="Nazwisko:").grid(row=2, column=0, sticky=W)
+entry_nazwisko = Entry(frame_form)
+entry_nazwisko.grid(row=2, column=1, sticky=EW)
 
-button_klienci_kompleks = Button(ramka_kontrolna, text="Klienci kompleksu",
-                                 command=generate_clients_for_complex_map)
-button_klienci_kompleks.grid(row=0, column=8, padx=5, pady=5)
+Label(frame_form, text="Miejscowość:").grid(row=3, column=0, sticky=W)
+entry_miejscowosc = Entry(frame_form)
+entry_miejscowosc.grid(row=3, column=1, sticky=EW)
 
-# Object list frame
-label_lista_obiektow = Label(ramka_lista_obiektow, text="Lista obiektów:")
-label_lista_obiektow.grid(row=0, column=0, sticky="w")
+Label(frame_form, text="Kompleks (dla prac./klientów):").grid(row=4, column=0, sticky=W)
+combo_kompleks = tkinter.ttk.Combobox(frame_form, state="readonly")
+combo_kompleks.grid(row=4, column=1, sticky=EW)
 
-listbox_lista_obiektow = Listbox(ramka_lista_obiektow, width=50, height=15)
-listbox_lista_obiektow.grid(row=1, column=0, columnspan=3, sticky="nsew")
+frame_form.columnconfigure(1, weight=1)
 
-button_pokaz_szczegoly = Button(ramka_lista_obiektow, text="Pokaż szczegóły", command=show_item_details)
-button_pokaz_szczegoly.grid(row=2, column=0, pady=5)
+button_dodaj = Button(frame_prawy, text="Dodaj", command=dodaj_obiekt)
+button_dodaj.pack(fill=X, pady=5)
 
-button_usun_obiekt = Button(ramka_lista_obiektow, text="Usuń", command=remove_item)
-button_usun_obiekt.grid(row=2, column=1, pady=5)
+button_odswiez_mape = Button(frame_prawy, text="Odśwież mapę", command=odswiez_mape)
+button_odswiez_mape.pack(fill=X)
 
-button_edytuj_obiekt = Button(ramka_lista_obiektow, text="Edytuj", command=edit_item)
-button_edytuj_obiekt.grid(row=2, column=2, pady=5)
+# Mapa
+frame_mapa = Frame(frame_prawy)
+frame_mapa.pack(fill=BOTH, expand=True)
 
-# Form frame
-label_formularz = Label(ramka_formularz, text="Formularz:")
-label_formularz.grid(row=0, column=0, sticky="w")
+mapa = tkintermapview.TkinterMapView(frame_mapa, width=600, height=400, corner_radius=0)
+mapa.pack(fill=BOTH, expand=True)
+mapa.set_position(52.22977, 21.01178)
+mapa.set_zoom(6)
 
-# Fields for complexes
-label_nazwa = Label(ramka_formularz, text="Nazwa kompleksu:")
-label_nazwa.grid(row=1, column=0, sticky="w")
-entry_nazwa = Entry(ramka_formularz, width=30)
-entry_nazwa.grid(row=1, column=1)
-
-label_adres = Label(ramka_formularz, text="Adres:")
-label_adres.grid(row=2, column=0, sticky="w")
-entry_adres = Entry(ramka_formularz, width=30)
-entry_adres.grid(row=2, column=1)
-
-label_lokalizacja = Label(ramka_formularz, text="Lokalizacja (Wikipedia):")
-label_lokalizacja.grid(row=3, column=0, sticky="w")
-entry_lokalizacja = Entry(ramka_formularz, width=30)
-entry_lokalizacja.grid(row=3, column=1)
-
-# Fields for employees
-label_imie = Label(ramka_formularz, text="Imię:")
-label_imie.grid(row=1, column=0, sticky="w")
-entry_imie = Entry(ramka_formularz, width=30)
-entry_imie.grid(row=1, column=1)
-
-label_nazwisko = Label(ramka_formularz, text="Nazwisko:")
-label_nazwisko.grid(row=2, column=0, sticky="w")
-entry_nazwisko = Entry(ramka_formularz, width=30)
-entry_nazwisko.grid(row=2, column=1)
-
-label_kompleks = Label(ramka_formularz, text="Kompleks:")
-label_kompleks.grid(row=3, column=0, sticky="w")
-entry_kompleks = ttk.Combobox(ramka_formularz, width=28)
-entry_kompleks.grid(row=3, column=1)
-
-label_stanowisko = Label(ramka_formularz, text="Stanowisko:")
-label_stanowisko.grid(row=4, column=0, sticky="w")
-entry_stanowisko = Entry(ramka_formularz, width=30)
-entry_stanowisko.grid(row=4, column=1)
-
-# Fields for clients
-label_sport = Label(ramka_formularz, text="Ulubiony sport:")
-label_sport.grid(row=4, column=0, sticky="w")
-entry_sport = Entry(ramka_formularz, width=30)
-entry_sport.grid(row=4, column=1)
-
-button_dodaj_obiekt = Button(ramka_formularz, text="Dodaj", command=add_item)
-button_dodaj_obiekt.grid(row=5, column=0, columnspan=2, pady=10)
-
-# Hide all fields initially
-update_form_fields()
-
-# Details frame
-label_szczegoly = Label(ramka_szczegoly_obiektow, text="Szczegóły obiektu:")
-label_szczegoly.grid(row=0, column=0, sticky="w")
-
-# Labels for complexes
-label_szczegoly_obiektu_nazwa = Label(ramka_szczegoly_obiektow, text="Nazwa:")
-label_szczegoly_obiektu_nazwa.grid(row=1, column=0, sticky="w")
-label_szczegoly_obiektu_nazwa_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_nazwa_wartosc.grid(row=1, column=1, sticky="w")
-
-label_szczegoly_obiektu_adres = Label(ramka_szczegoly_obiektow, text="Adres:")
-label_szczegoly_obiektu_adres.grid(row=1, column=2, sticky="w")
-label_szczegoly_obiektu_adres_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_adres_wartosc.grid(row=1, column=3, sticky="w")
-
-label_szczegoly_obiektu_lokalizacja = Label(ramka_szczegoly_obiektow, text="Lokalizacja:")
-label_szczegoly_obiektu_lokalizacja.grid(row=1, column=4, sticky="w")
-label_szczegoly_obiektu_lokalizacja_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_lokalizacja_wartosc.grid(row=1, column=5, sticky="w")
-
-# Labels for employees
-label_szczegoly_obiektu_imie = Label(ramka_szczegoly_obiektow, text="Imię:")
-label_szczegoly_obiektu_imie.grid(row=2, column=0, sticky="w")
-label_szczegoly_obiektu_imie_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_imie_wartosc.grid(row=2, column=1, sticky="w")
-
-label_szczegoly_obiektu_nazwisko = Label(ramka_szczegoly_obiektow, text="Nazwisko:")
-label_szczegoly_obiektu_nazwisko.grid(row=2, column=2, sticky="w")
-label_szczegoly_obiektu_nazwisko_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_nazwisko_wartosc.grid(row=2, column=3, sticky="w")
-
-label_szczegoly_obiektu_kompleks = Label(ramka_szczegoly_obiektow, text="Kompleks:")
-label_szczegoly_obiektu_kompleks.grid(row=2, column=4, sticky="w")
-label_szczegoly_obiektu_kompleks_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_kompleks_wartosc.grid(row=2, column=5, sticky="w")
-
-label_szczegoly_obiektu_stanowisko = Label(ramka_szczegoly_obiektow, text="Stanowisko:")
-label_szczegoly_obiektu_stanowisko.grid(row=2, column=6, sticky="w")
-label_szczegoly_obiektu_stanowisko_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_stanowisko_wartosc.grid(row=2, column=7, sticky="w")
-
-# Labels for clients
-label_szczegoly_obiektu_sport = Label(ramka_szczegoly_obiektow, text="Ulubiony sport:")
-label_szczegoly_obiektu_sport.grid(row=3, column=0, sticky="w")
-label_szczegoly_obiektu_sport_wartosc = Label(ramka_szczegoly_obiektow, text="...")
-label_szczegoly_obiektu_sport_wartosc.grid(row=3, column=1, sticky="w")
-
-# Map frame
-map_widget = tkintermapview.TkinterMapView(ramka_mapa, width=1100, height=400, corner_radius=0)
-map_widget.grid(row=0, column=0, sticky="nsew")
-map_widget.set_position(52.23, 21.00)  # Warsaw coordinates
-map_widget.set_zoom(6)
-
-# Initial update
-update_form_fields()
-update_complex_combo()
+zmien_typ()
 
 root.mainloop()
